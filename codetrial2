@@ -1,0 +1,72 @@
+import cv2
+import torch
+from ultralytics import YOLO
+from gpiozero import LED
+import requests
+
+# Load YOLOv8 model
+model = YOLO("yolov8n.pt")  # or your specific YOLOv8 model
+
+# Setup gpiozero LEDs
+led_pins = [17, 18, 27, 22, 23, 24]  # Example gpiozero pins
+leds = [LED(pin) for pin in led_pins]
+
+def detect_objects(frame):
+    results = model(frame)
+    return results
+
+def draw_grid(frame):
+    h, w, _ = frame.shape
+    dx = 320  # Width of each rectangle
+    for x in range(0, w, dx):
+        cv2.line(frame, (x, 0), (x, h), (255, 255, 255), 1)
+    return frame
+
+def get_grid_cells_with_objects(results, frame_shape=(1080, 1920)):
+    h, w = frame_shape
+    dx = 320  # Width of each rectangle
+    grid_cells = [0] * 6  # Six rectangles
+
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = box.xyxy[0]
+            start_col = int(x1 // dx)
+            end_col = int(x2 // dx)
+            for col in range(start_col, end_col + 1):
+                if col < len(grid_cells):
+                    grid_cells[col] = 1  # Mark cell as occupied
+
+    return grid_cells
+
+def light_up_leds(grid_cells):
+    url = "http://your-particle-boron-ip-or-url"  # Replace with your Boron's address
+    for i in range(len(grid_cells)):
+        if grid_cells[i] == 0:  # No obstacles in this cell
+            data = {"led_group": i, "status": "ON"}
+            leds[i].on()
+        else:
+            data = {"led_group": i, "status": "OFF"}
+            leds[i].off()
+        response = requests.post(url, json=data)
+        print(response.text)  # Debugging
+
+# Initialize camera
+cap = cv2.VideoCapture(0)  # 0 is the default camera
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    results = detect_objects(frame)
+    frame = results.render()[0]  # Render the detection results on the frame
+
+    frame = draw_grid(frame)  # Draw grid with 6x1 segments
+    grid_cells = get_grid_cells_with_objects(results, frame_shape=frame.shape[:2])
+    light_up_leds(grid_cells)
+
+    cv2.imshow("YOLOv8 Detection with Grid", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
