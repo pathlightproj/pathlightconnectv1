@@ -1,0 +1,69 @@
+import cv2
+import torch
+from ultralytics import YOLO
+import RPi.GPIO as GPIO
+import requests
+
+# Load YOLOv8 model
+model = YOLO("yolov8n.pt")  # or your specific YOLOv8 model
+
+# Setup GPIO pins for LEDs
+led_pins = [17, 18, 27, 22, 23, 24]  # Example GPIO pins
+GPIO.setmode(GPIO.BCM)
+for pin in led_pins:
+    GPIO.setup(pin, GPIO.OUT)
+
+def detect_objects(frame):
+    results = model(frame)
+    return results
+
+def draw_grid(frame):
+    h, w, _ = frame.shape
+    dx = 320  # Width of each rectangle
+    for x in range(0, w, dx):
+        cv2.line(frame, (x, 0), (x, h), (255, 255, 255), 1)
+    return frame
+
+def get_grid_cells_with_objects(results, frame_shape=(1080, 1920)):
+    h, w = frame_shape
+    dx = 320  # Width of each rectangle
+    grid_cells = [0] * 6  # Six rectangles
+
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = box.xyxy[0]
+            cx = (x1 + x2) / 2
+            grid_x = int(cx // dx)
+            if grid_x < len(grid_cells):
+                grid_cells[grid_x] = 1  # Mark cell as occupied
+
+    return grid_cells
+
+def light_up_leds(grid_cells):
+    for i in range(len(led_pins)):
+        if grid_cells[i] == 0:  # No obstacles in this cell
+            GPIO.output(led_pins[i], GPIO.HIGH)
+        else:
+            GPIO.output(led_pins[i], GPIO.LOW)
+
+# Initialize camera
+cap = cv2.VideoCapture(0)  # 0 is the default camera
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    results = detect_objects(frame)
+    frame = results.render()[0]  # Render the detection results on the frame
+
+    frame = draw_grid(frame)  # Draw grid with 6x1 segments
+    grid_cells = get_grid_cells_with_objects(results, frame_shape=frame.shape[:2])
+    light_up_leds(grid_cells)
+
+    cv2.imshow("YOLOv8 Detection with Grid", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
+GPIO.cleanup()
