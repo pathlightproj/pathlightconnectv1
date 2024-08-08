@@ -20,7 +20,7 @@ LINE = 10
 LINE1 = 9
 LINE2 = 11
 
-with gpiod.request_lines(
+gpiod.request_lines(
     "/dev/gpiochip4",
     consumer="blink-example",
     config={
@@ -34,8 +34,7 @@ with gpiod.request_lines(
             direction=Direction.OUTPUT, output_value=Value.ACTIVE
         )
     },
-) as request:
-    while True:
+) '''as request:
         request.set_value(LINE, Value.ACTIVE)
         request.set_value(LINE1, Value.ACTIVE)
         request.set_value(LINE2, Value.ACTIVE)
@@ -45,14 +44,12 @@ with gpiod.request_lines(
         request.set_value(LINE1, Value.INACTIVE)
         request.set_value(LINE2, Value.INACTIVE)
         time.sleep(1)
+    '''
 
 '''
-c1=LED(16)
-c2=LED(20)
-c3=LED(21)
-c1.off()
-c2.off()
-c3.off()
+c1=request.set_value(LINE, Value.INACTIVE)
+c2=request.set_value(LINE1, Value.INACTIVE)
+c3=request.set_value(LINE2, Value.INACTIVE)
 '''
 
 
@@ -225,8 +222,9 @@ def setup_leds(grid_cells):
         light_up_leds(1)
     elif grid_cells == [1,1,1,1,1,1]: # c1,c2,c3,c4,c5,c6
         light_up_leds(7)
-'''
+
 def light_up_leds(x):
+    '''
     if(x==0):
         c1.off()
         c2.off()
@@ -264,7 +262,7 @@ def light_up_leds(x):
         print("turning on two and three")
     elif(x==7):
         print("Stop where you are")
-'''
+    '''
 while True:
     # Capture frame-by-frame
     frame = picam2.capture_array()
