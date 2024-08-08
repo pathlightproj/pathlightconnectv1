@@ -1,0 +1,102 @@
+import cv2
+import torch
+from ultralytics import YOLO
+from gpiozero import LED
+import requests
+
+# Load YOLOv8 model
+model = YOLO("yolov8n.pt")  # or your specific YOLOv8 model
+
+# Setup gpiozero LEDs
+led_pins = [17, 18, 27, 22, 23, 24, 25]  # Example gpiozero pins for 6 groups
+leds = [LED(pin) for pin in led_pins]
+
+def detect_objects(frame):
+    results = model(frame)
+    return results
+
+def draw_grid(frame):
+    h, w, _ = frame.shape
+    dx = 320  # Width of each rectangle
+    for x in range(0, w, dx):
+        cv2.line(frame, (x, 0), (x, h), (255, 255, 255), 1)
+    return frame
+
+def get_grid_cells_with_objects(results, frame_shape=(1080, 1920)):
+    h, w = frame_shape
+    dx = 320  # Width of each rectangle
+    grid_cells = [0] * 6  # Six rectangles
+
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = box.xyxy[0]
+            start_col = int(x1 // dx)
+            end_col = int(x2 // dx)
+            for col in range(start_col, end_col + 1):
+                if col < len(grid_cells):
+                    grid_cells[col] = 1  # Mark cell as occupied
+
+    return grid_cells
+
+def calculate_clear_path(grid_cells):
+    # Find the first clear column from the center outwards
+    center_index = len(grid_cells) // 2
+    clear_paths = []
+    
+    for i in range(center_index + 1):
+        left_index = center_index - i
+        right_index = center_index + i
+        
+        # Check left index
+        if left_index >= 0 and grid_cells[left_index] == 0:
+            if not ((left_index > 0 and grid_cells[left_index - 1] == 1) and 
+                    (left_index < len(grid_cells) - 1 and grid_cells[left_index + 1] == 1)):
+                clear_paths.append(left_index)
+        
+        # Check right index
+        if right_index < len(grid_cells) and grid_cells[right_index] == 0:
+            if not ((right_index > 0 and grid_cells[right_index - 1] == 1) and 
+                    (right_index < len(grid_cells) - 1 and grid_cells[right_index + 1] == 1)):
+                clear_paths.append(right_index)
+    
+    if clear_paths:
+        return clear_paths[0]  # Return the first clear path found
+    else:
+        return None  # No clear path found
+
+def light_up_leds(clear_path):
+    url = "http://your-particle-boron-ip-or-url"  # Replace with your Boron's address
+    for i in range(len(leds)):
+        if clear_path is None:  # No clear path found
+            leds[i].off()
+            data = {"led_group": i, "status": "OFF"}
+        elif i == clear_path:  # Light up the path LED
+            leds[i].on()
+            data = {"led_group": i, "status": "ON"}
+        else:
+            leds[i].off()
+            data = {"led_group": i, "status": "OFF"}
+        response = requests.post(url, json=data)
+        print(response.text)  # Debugging
+
+# Initialize camera
+cap = cv2.VideoCapture(0)  # 0 is the default camera
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    results = detect_objects(frame)
+    frame = results.render()[0]  # Render the detection results on the frame
+
+    frame = draw_grid(frame)  # Draw grid with 6x1 segments
+    grid_cells = get_grid_cells_with_objects(results, frame_shape=frame.shape[:2])
+    clear_path = calculate_clear_path(grid_cells)
+    light_up_leds(clear_path)
+
+    cv2.imshow("YOLOv8 Detection with Grid", frame)
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
